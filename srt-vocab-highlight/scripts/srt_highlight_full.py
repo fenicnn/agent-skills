@@ -3,13 +3,14 @@
 """SRT 双语字幕全面高亮：英文生词多色标记 + 译文纠正 + 中文释义同步标色。
 
 保留序号、时间轴、原 HTML 标签与全部结构。
-同一句多个生词按首次出现顺序循环分配颜色（红/蓝/绿/紫），
-同词条重复出现处使用同一颜色。
+同一句多个生词按首次出现顺序循环分配颜色（默认黄/橙/亮绿/亮粉，
+均为高亮度浅色，避免深色被视频背景吞没），同词条重复出现处使用同一颜色。
 
 用法:
     python3 srt_highlight_full.py --input in.srt --output out.srt \
         --words words.json [--glosses glosses.json] \
-        [--corrections corrections.json] [--tag font|span]
+        [--corrections corrections.json] [--tag font|span] \
+        [--colors "#ffd400,#ff9a00,#66ff66,#ff8ee0"]
 
 words.json:       {"序号": ["word", "phrase", ...]}
 glosses.json:     {"序号": {"word": "中文释义"}}   释义须为该行译文的实际子串
@@ -21,7 +22,7 @@ import re
 
 CJK = re.compile(r'[\u4e00-\u9fff]')
 TAG = re.compile(r'<[^>]+>')
-COLORS = ['#ff4444', '#2b7fff', '#1fa855', '#9b59b6']
+DEFAULT_COLORS = ['#ffd400', '#ff9a00', '#66ff66', '#ff8ee0']
 
 
 def tag_pair(color, tag):
@@ -43,12 +44,12 @@ def gloss_pattern(gloss_color):
     return re.compile('|'.join(re.escape(g) for g, _ in items))
 
 
-def assign_colors(text, pattern):
+def assign_colors(text, pattern, colors):
     color_map = {}
     for m in pattern.finditer(text):
         key = m.group(0).lower()
         if key not in color_map:
-            color_map[key] = COLORS[len(color_map) % len(COLORS)]
+            color_map[key] = colors[len(color_map) % len(colors)]
     return color_map
 
 
@@ -87,7 +88,7 @@ def parse_blocks(lines):
     return blocks
 
 
-def process_block(block, words_map, glosses_map, corrections, tag):
+def process_block(block, words_map, glosses_map, corrections, tag, colors):
     idx = block['idx']
     key = str(idx) if idx is not None else None
     wl = words_map.get(key, []) if key else []
@@ -95,7 +96,7 @@ def process_block(block, words_map, glosses_map, corrections, tag):
     color_map = {}
     if pattern:
         en_text = ' '.join(TAG.sub('', l) for l in block['lines'] if is_english(l))
-        color_map = assign_colors(en_text, pattern)
+        color_map = assign_colors(en_text, pattern, colors)
 
     gl = glosses_map.get(key, {}) if key else {}
     gloss_color = {}
@@ -152,7 +153,10 @@ def main():
     ap.add_argument('--glosses', default=None)
     ap.add_argument('--corrections', default=None)
     ap.add_argument('--tag', default='font', choices=['font', 'span'])
+    ap.add_argument('--colors', default=','.join(DEFAULT_COLORS),
+                    help='逗号分隔的颜色循环，默认亮色系: ' + ','.join(DEFAULT_COLORS))
     args = ap.parse_args()
+    colors = [c.strip() for c in args.colors.split(',') if c.strip()] or DEFAULT_COLORS
 
     def load(p):
         if not p:
@@ -171,7 +175,7 @@ def main():
     changed_en = changed_zh = 0
     for block in parse_blocks(lines):
         before = block['lines']
-        after = process_block(block, words_map, glosses_map, corrections, args.tag)
+        after = process_block(block, words_map, glosses_map, corrections, args.tag, colors)
         for b, a in zip(before, after):
             if b != a:
                 if is_chinese(a) or is_chinese(b):
