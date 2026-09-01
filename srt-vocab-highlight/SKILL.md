@@ -20,7 +20,7 @@ agent_created: true
 1. 用户提供 .srt 文件路径 → 读取文件
 2. 按字幕序号（英文字幕行）维护目标词表 → 见 Step 1
 3. （可选）维护中文对应释义表 → 见 Step 1
-4. 运行 `scripts/highlight_srt.py` 生成高亮版 → 见 Step 2
+4. 运行 `scripts/srt_highlight_full.py`（推荐，完整版）或 `scripts/highlight_srt.py`（旧版，仅单色英文标红）生成高亮版 → 见 Step 2
 5. 校验输出（行数、时间轴、标签配对、无嵌套、无词边界误标）→ 见 Step 3
 6. 用 present_files 展示新文件
 
@@ -41,16 +41,26 @@ agent_created: true
 ## Step 2: 运行高亮脚本
 
 ```bash
-python3 scripts/highlight_srt.py \
+# 完整版（推荐）：英文多色高亮 + 中文释义同步标色 + 译文纠正
+python3 scripts/srt_highlight_full.py \
   --input <原字幕.srt> \
   --output <输出.srt> \
   --words <词表.json> \
+  [--glosses <释义表.json>] \
+  [--corrections <纠正表.json>] \
   [--tag font|span]
+
+# 旧版（仅英文单色红标，无释义/纠正）：
+# python3 scripts/highlight_srt.py --input in.srt --output out.srt --words words.json
 ```
 
+- 词表 `--words`：`{"序号": ["词/短语", ...]}`
+- 释义表 `--glosses`：`{"序号": {"英文词": "中文释义"}}`，释义须为该行译文实际子串；颜色自动跟随对应英文生词
+- 纠正表 `--corrections`：`{"序号": "纠正后的整行中文译文"}`，先替换译文再做释义标色
 - `--tag` 默认 `font`（`<font color="#ff4444">`）：**绝大多数播放器（VLC/PotPlayer/IINA 等）不识别 `<span style="color:...">`，必须用 font 标签**，与原字幕自带 font 标签兼容，内层 color 优先显示红色
 - `--tag span` 仅在用户明确要求 `<span style="color:#ff4444">` 时使用
-- 脚本自动处理：中英文行识别（含 CJK 判断）、原 HTML 标签保护（先 split 标签只替换纯文本）、`\b` 词边界、长短语优先交替匹配
+- 脚本自动处理：中英文行识别（含 CJK 判断）、原 HTML 标签保护（先 split 标签只替换纯文本）、`\b` 词边界、长短语优先交替匹配、多色循环（红→蓝→绿→紫，按首次出现顺序，同词同色）、中文释义长词优先单趟替换（防嵌套，如"好奇心"先于"好奇"、"引发对话"先于"引发"）
+- 注意：文件名以 `-` 开头时（如 YouTube ID 命名的 srt），grep/wc 需用 `./` 前缀或 `--` 分隔，否则被当成参数解析失败
 
 ## Step 3: 校验输出（必做）
 
@@ -75,7 +85,10 @@ python3 scripts/highlight_srt.py \
 
 ## 资源
 
+### scripts/srt_highlight_full.py
+完整版高亮脚本（推荐）：英文生词多色标记 + 中文释义同步标色 + 译文纠正，词表/释义表/纠正表均以独立 JSON 传入。
+
 ### scripts/highlight_srt.py
-通用高亮脚本（见 Step 2 用法），词表以独立 JSON 文件传入，避免每次重写逻辑。
+旧版通用高亮脚本（仅英文单色红标），词表以独立 JSON 文件传入。
 
 **无 references/ 与 assets/，已删除（该工作流无需额外文档与模板资源）。**
