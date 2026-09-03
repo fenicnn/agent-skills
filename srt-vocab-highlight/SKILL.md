@@ -61,6 +61,7 @@ python3 scripts/srt_highlight_full.py \
 - `--tag` 默认 `font`（`<font color="#ffd400">`）：**绝大多数播放器（VLC/PotPlayer/IINA 等）不识别 `<span style="color:...">`，必须用 font 标签**，与原字幕自带 font 标签兼容，内层 color 优先显示
 - `--tag span` 仅在用户明确要求 `<span style="color:...">` 时使用
 - `--colors` 逗号分隔的颜色循环，默认亮色系黄/橙/亮绿/亮粉；颜色总数不限，单生词句固定用第一个颜色，多生词句按顺序循环
+  - 若视频背景很亮（如户外/商场玻璃门/白天天空），用户可能反馈默认浅亮色“不够亮”，可换更饱和的霓虹色：`--colors "#ffff00,#ff6a00,#00ff7f,#ff66ff"`
 - 脚本自动处理：中英文行识别（含 CJK 判断）、原 HTML 标签保护（先 split 标签只替换纯文本）、`\b` 词边界、长短语优先交替匹配、多色循环（按首次出现顺序，同词同色）、中文释义长词优先单趟替换（防嵌套，如"好奇心"先于"好奇"、"引发对话"先于"引发"）
 - 注意：文件名以 `-` 开头时（如 YouTube ID 命名的 srt），grep/wc 需用 `./` 前缀或 `--` 分隔，否则被当成参数解析失败
 
@@ -73,6 +74,8 @@ python3 scripts/srt_highlight_full.py \
 - 无词边界误标：重点检查 ish 是否标入 British、stick 是否标入 chopsticks、grab 是否标入 grabbed（应匹配 grabbed 本身）
 - 原 font 标签数量不减少
 - 空标签检查：`grep -c '<font color="#[0-9a-f]*"></font>'` 应为 0
+- **纠正表逐条生效校验**：运行前先数 `corrections.json` 的条目数；运行后抽查每一条纠正句（尤其含英文注释词的，如 341 shoplifting、329 on sale），确认旧译文已被替换——实践中曾多次漏写纠正条目，仅靠标签配对检查发现不了（高亮/释义照常生效，唯独纠正未落地）。可用脚本输出的"中文处理行"数与预期比对辅助判断
+- **macOS/BSD 校验避坑**：macOS 的 `grep` 不支持 `-P`，用 `grep -P` 校验中文/空标签时会静默失败或返回空，一律改用 Python 正则或 `ripgrep`（rg）做校验
 
 ## 关键坑点（务必遵守）
 
