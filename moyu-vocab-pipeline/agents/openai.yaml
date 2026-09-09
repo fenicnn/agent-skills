@@ -1,0 +1,8 @@
+interface:
+  display_name: "Moyu Vocabulary Pipeline"
+  short_description: "生成 Studio 可导入的高亮字幕与 AI 词汇任务"
+  brand_color: "#6C63FF"
+  default_prompt: "Use $moyu-vocab-pipeline to prepare this bilingual SRT and video for Moyu Studio."
+
+policy:
+  allow_implicit_invocation: true

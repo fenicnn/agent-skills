@@ -1,7 +1,8 @@
 ---
 name: moyu-vocab-pipeline
-description: 一站式生成 Moyu Studio 学习资源的 pipeline，串联 3 类产物：高亮 SRT（生词彩色 `<font>` 标签）、`moyu-ai-vocabulary.json`（Moyu Studio 词汇导入，schemaVersion 2：直接从高亮 SRT 的彩色标签提取 cueIndex + term，AI 不生成任何 ID）、MP4（Apple QuickTime 兼容的 HEVC/AAC/faststart）。当用户给出原始双语 SRT + 可选 MKV，要求"高亮字幕 + 生成词汇 + 转码 MP4 一键搞定 / 跑一遍 E04 / 同上一集流程再来一次 / moyu pipeline"时使用。本 skill 负责工程脚手架和机械自动化，"标词"与"回填释义"两步需要外部 AI 介入（规则内置于本文档，无需中间 prompt md）。
-agent_created: true
+description: 一站式生成 Moyu Studio 学习资源：从双语 SRT 生成彩色重点词字幕、schemaVersion 2 AI 词汇任务与导入 JSON，并可按需将非 MP4 视频转换为兼容 MP4。用户要求处理某一集、复用上一集流程、生成 Studio 词汇素材或运行 moyu pipeline 时使用；不用于最终视频画面合成。
+metadata:
+  short-description: 生成 Moyu Studio 高亮字幕、AI 词汇任务并按需转码
 ---
 
 # Moyu Vocab Pipeline
@@ -10,18 +11,18 @@ agent_created: true
 
 把"原始视频 + 原始双语 SRT → Moyu Studio 产物"的流程从一次性脚本升级成可复用 pipeline。
 
-- **3 类产物**：高亮 SRT、词汇 JSON（v2 cueIndex 格式）、MP4
-- **6 个子命令**：`init / highlight / vocab / transcode / finish / status`
-- **不再生成中间 prompt md**：`vocab` 直接解析高亮 SRT 的彩色标签提取 `cueIndex + term`（旧版 `cue-XX-XXX-term-N` ID 与 `moyu-ai-vocabulary-prompt-*.md` 中间产物均已废弃；`--prompt-md` 仅作存量文件 legacy 兼容）
+- **核心产物**：高亮 SRT、词汇 JSON（v2 cueIndex 格式）和 AI 释义提示词；仅在输入不是 MP4 时默认另产 MP4
+- **7 个子命令**：`init / apply-selection / highlight / vocab / transcode / finish / status`
+- `vocab` 直接解析高亮 SRT，并同时生成可交给外部 AI 的释义任务；默认输出 schemaVersion 2，`--schema 1` 兼容旧客户端。
 - **依赖**：内置 `srt-vocab-highlight` skill（高亮阶段）+ 系统 `ffmpeg`（transcode 阶段）
 
 Skill 的入口脚本 `scripts/moyu_pipeline.py` 同时也是 CLI，可直接 `python moyu_pipeline.py finish --help` 跑。
 
 ## Workflow Decision Tree
 
-1. 用户给原始双语 SRT（必填）和 MKV（可选）→ 进入 Step 2
+1. 用户给原始双语 SRT（必填）和视频（可选）→ 进入 Step 2
 2. 用户说"跑一遍 E04 / 同上一集再来一次 / pipeline 一键" → 直接用 `finish`（前提是工程目录已有 words/corrections）
-3. 用户是全新一集没建工程 → 先 `init`，再 AI 标词，最后 `finish` + AI 回填释义
+3. 用户是全新一集没建工程 → 先 `init --gen-prompt`，再 AI 标词；外部 AI 返回单个 JSON 时用 `apply-selection` 落成 words/corrections，最后 `finish` + AI 回填释义
 4. 用户只要其中一类产物 → 用对应单步子命令（`highlight` / `vocab` / `transcode`）
 5. 用户想看进度 → `status`
 
@@ -33,14 +34,14 @@ Skill 的入口脚本 `scripts/moyu_pipeline.py` 同时也是 CLI，可直接 `p
 python scripts/moyu_pipeline.py init \
     --srt /path/to/Friends.S01E04...srt \
     --episode e04 \
-    --mkv /path/to/Friends.S01E04...mkv  # 可选
+    --video /path/to/Friends.S01E04...mp4  # 可选；MP4 不会重复转码
 ```
 
 落地：
 - `<work_dir>/srt.original.txt`（规范化换行的 SRT 备份，**AI 标词直接读它**）
 - `<work_dir>/e04_words.json`、`e04_corrections.json`、`e04_glosses.json`（空模板）
 
-默认**不生成** prompt md；如需把标词规则+字幕打包喂给别的 AI，可加 `--gen-prompt`。
+默认不生成标词 prompt；需要交给外部 AI 时加 `--gen-prompt`。其输出格式可由 `apply-selection` 直接导入。
 
 ### Step 2 — AI 标词（外部介入）
 
@@ -50,20 +51,30 @@ AI 按下方"AI 标词规则"阅读 `<work_dir>/srt.original.txt`，输出：
 
 注：skill **不**内置 AI 标词实现——这是 workflow 唯一的"非自动化"环节之一。
 
+外部 AI 返回 `{"words": {...}, "corrections": {...}}` 后执行：
+
+```bash
+python scripts/moyu_pipeline.py apply-selection \
+  --input /path/to/selection.json --episode e04 \
+  --work-dir /path/to/.moyu-work/e04
+```
+
 ### Step 3 — 一键产出 `finish`（vocab 自动从高亮 SRT 解析）
 
 ```bash
 python scripts/moyu_pipeline.py finish \
     --srt /path/to/Friends.S01E04...srt \
     --episode e04 \
-    --output-dir /path/to/第4集 \        # HL SRT + vocabulary.json 输出目录
-    --mkv /path/to/Friends.S01E04...mkv   # 可选
+    --video /path/to/Friends.S01E04...mp4  # 可选；已有 MP4 原样复用
 ```
 
-跑完产出：
-- `<output_dir>/<srt_stem>_高亮.srt`
-- `<output_dir>/moyu-ai-vocabulary.json`（**schemaVersion 2 骨架**：cueIndex/term 已从高亮 SRT 彩色标签解析，phonetic/partOfSpeech/meaning 为空待 AI 回填；默认放 HL SRT 同目录，`--vocab-output` 可覆盖）
-- `<mp4>`（H.265 hvc1 + AAC 192k + faststart）
+默认在**原 SRT 所在目录**产出（`--output-dir` 可覆盖）：
+- `<srt_stem>_高亮.srt`
+- `moyu-ai-vocabulary.json`（默认 **schemaVersion 2 骨架**；`--schema 1` 可兼容旧客户端）
+- `moyu-ai-vocabulary-prompt.md`（含完整双语语境，可直接交给外部 AI 回填释义）
+- 非 MP4 视频才另产兼容 MP4；输入已是 MP4 时不复制、不转码
+
+`.moyu-work/<episode>` 只保存可复用的中间状态，不作为最终交付目录。
 
 不需要 `--prompt-md`——vocab 阶段自动用刚生成的高亮 SRT。
 
@@ -76,18 +87,19 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 
 | 命令 | 用途 | 关键参数 |
 |---|---|---|
-| `init` | 建工程骨架（默认不生成 prompt md） | `--srt` (必)、`--mkv` (可)、`--episode`、`--work-dir`、`--gen-prompt` (可) |
+| `init` | 建工程骨架（默认不生成 prompt md） | `--srt` (必)、`--video` (可)、`--episode`、`--work-dir`、`--gen-prompt` (可) |
+| `apply-selection` | 把 AI 标词结果拆成 words/corrections | `--input`、`--episode`、`--work-dir` |
 | `highlight` | 单跑：生成高亮 SRT | `--srt`、`--episode`、`--colors` |
-| `vocab` | 单跑：**高亮 SRT → vocabulary.json** | `--hl-srt` (推荐)、`--output`；legacy：`--prompt-md` |
-| `transcode` | 单跑：ffmpeg MKV → MP4 | `--input`、`--output`、`--vcodec-copy` |
-| `finish` | 一键：`highlight + vocab + transcode` | `--srt`、`--output-dir`、`--vocab-output`、`--mkv` |
+| `vocab` | 单跑：**高亮 SRT → vocabulary.json + AI prompt** | `--hl-srt`、`--output`、`--schema 1|2` |
+| `transcode` | 单跑：ffmpeg MKV → MP4 | `--input`、`--output`、`--video-mode auto|copy|hevc` |
+| `finish` | 一键：`highlight + vocab`，非 MP4 视频按需 transcode | `--srt`、`--output-dir`、`--vocab-output`、`--video`、`--transcode-mp4` |
 | `status` | 检查工程目录各产物是否就位 | `--srt`、`--episode`、`--work-dir` |
 
 ## 关键约定（防踩坑）
 
 ### 词汇 JSON 映射规则（schemaVersion 2 / cueIndex）——权威规则
 
-新版 Moyu Studio **不要求 AI 生成词汇 `id`**，AI 只需正确返回 `cueIndex + term`：
+默认生成 schemaVersion 2。脚本负责生成 `cueIndex + term`，AI 不得新增、删除或修改二者：
 
 1. **只提取带颜色标签的英文词汇/短语**：`<font color="...">...</font>` 或 `<span style="color: ...">...</span>`；没有颜色标签的单词不得加入结果。
 2. **cueIndex = 该词汇所在 SRT 字幕块第一行的字幕序号**，必须是数字不能是字符串（`"cueIndex": 62` 正确，`"cueIndex": "62"` 错误）。
@@ -129,8 +141,10 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 - `srt_vocab_highlight.py` 内部 `re.compile("")` 会匹配每个位置，导致中文行每个字被包成 `<font></font>字</font>`
 - 如需中文行释义高亮，必须用中文行实际包含的子串，绝不能用空串
 
-### `--vcodec-copy`：默认开启
-- 视频直接 copy 原码流（HEVC BluRay 已是 hvc1）；音频 AC3 → AAC LC 192k
+### 视频模式：默认 `--video-mode auto`
+- `finish --video` 遇到 `.mp4` 时默认直接复用，不创建第二份视频，不检查或改变其编码。
+- 只有非 MP4 输入才进入 auto：HEVC 自动 copy 并标记 hvc1；H.264 自动 copy 并标记 avc1；其他编码转 HEVC。音频默认 AAC LC 192k。
+- 仅当用户明确要求重编码已有 MP4 时，才传 `--transcode-mp4`。
 
 ### `--movflags +faststart`
 - 必须加，否则 QuickTime/Web 浏览器没法 seek
@@ -171,7 +185,7 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 
 ## Environment
 
-- Python 3.13+：默认用 `/Users/cnn/.workbuddy/binaries/python/versions/3.13.12/bin/python3`
+- Python 3.10+：使用当前解释器；高亮脚本优先从相邻 skill 解析，也可用 `MOYU_HIGHLIGHT_SCRIPT` 指定
 - ffmpeg：标准 `ffmpeg` 命令，安装可用 `brew install ffmpeg`
 - 视频目录惯例：`/Users/cnn/Movies/<剧集>/<季>/<第N集>/`
 - 工程目录惯例：`<视频目录>/.moyu-work/`
@@ -179,4 +193,16 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 ## Resources
 
 ### scripts/
-- `scripts/moyu_pipeline.py`：本 skill 的全部实现——6 个子命令 + SRT 解析 + 高亮 SRT 彩色标签解析（`extract_terms_from_hl_srt`：cueIndex/term 提取与去重）+ 调用 srt-vocab-highlight + 调用 ffmpeg。可作为 CLI 直接 `python moyu_pipeline.py <cmd> [opts]` 跑，也可被 WorkBuddy 加载走子命令 API。
+- `scripts/moyu_pipeline.py`：本 skill 的全部实现——7 个子命令 + 与 Studio 对齐的 SRT 高亮解析 + 调用 srt-vocab-highlight + 调用 ffmpeg。
+
+## 参考协议
+
+- AI JSON 导入或高亮解析异常时，读取 [references/studio-vocabulary-contract.md](references/studio-vocabulary-contract.md)。
+- 编码、音轨或播放器兼容异常时，读取 [references/video-transcoding.md](references/video-transcoding.md)。
+
+## 修改后验证
+
+```bash
+python -m unittest scripts/test_moyu_pipeline.py
+python scripts/moyu_pipeline.py --help
+```
