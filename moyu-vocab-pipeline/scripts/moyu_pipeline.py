@@ -224,7 +224,7 @@ VOCAB_RULES_HEADER = """\
 
 [
   {
-    "id": "cue-{字幕序号:0>3}-{start_ms:0>9}-term-{术语序号:0}",
+    "id": "cue-{字幕序号}-{start_ms:0>9}-term-{术语序号}",
     "term": "字幕里原样的英文词或短语",
     "color": "#ffd400 / #ff9a00 / #00ff7f / #ff66ff / #00e5ff 五选一",
     "subtitle": {{
@@ -237,7 +237,7 @@ VOCAB_RULES_HEADER = """\
 ]
 
 注意：
-1. **id 中字幕序号和 start_ms 都是 0-padded 9 位十进制**（如 cue-033-000045889-term-0）
+1. **id 中 start_ms 是 0-padded 9 位十进制，字幕序号不补零**（如 cue-33-000045889-term-0）
 2. 同一 cue 的多词项 id 的结尾用 -term-0 / -term-1 ...
 3. **chinese 字段**：如果该 cue 不需要修正中文翻译，仍要照抄原文；如果需要修正，请直接给修正后的整句中文。
 
@@ -475,10 +475,24 @@ def cmd_status(args) -> int:
 
 
 def _as_sub(args, extra: list[str]) -> argparse.Namespace:
-    """把当前 args 复制一份并追加 extra，模拟子命令嵌套调用。"""
+    """把当前 args 复制一份并追加 extra，模拟子命令嵌套调用。
+
+    子命令实际会访问的属性若在 finish 的参数表里没定义，这里补默认值，
+    避免 AttributeError（finish → highlight/vocab/transcode 嵌套场景）。
+    """
     sub = argparse.Namespace(**vars(args))
     for i in range(0, len(extra), 2):
         setattr(sub, extra[i].lstrip("-").replace("-", "_"), extra[i + 1])
+    defaults = {
+        "dry_run": False,
+        "output_dir": None,
+        "vcodec_copy": DEFAULT_TRANSCODE_VCODEC_COPY,
+        "acodec": DEFAULT_TRANSCODE_ACODEC,
+        "abitrate": DEFAULT_TRANSCODE_ABITRATE,
+    }
+    for name, default in defaults.items():
+        if not hasattr(sub, name):
+            setattr(sub, name, default)
     return sub
 
 
@@ -551,6 +565,8 @@ def main():
     p_fin.add_argument("--mkv")
     p_fin.add_argument("--episode")
     p_fin.add_argument("--work-dir")
+    p_fin.add_argument("--output-dir",
+                       help="高亮 SRT 输出目录，默认 <work-dir>/output")
     p_fin.add_argument("--prompt-md")
     p_fin.add_argument("--vocab-output")
     p_fin.add_argument("--mp4-output")

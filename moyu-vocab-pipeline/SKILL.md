@@ -97,8 +97,8 @@ python scripts/moyu_pipeline.py finish \
 - 如果需要中文行释义高亮，必须用中文行实际包含的中文子串，绝不能用空串
 
 ### ID 格式：`cue-XX-XXX-term-N`
-- `{字幕序号:0>3}-{start_ms:0>9}-term-{术语序号:0}`
-- 例：`cue-033-000045889-term-0`
+- `{字幕序号}-{start_ms:0>9}-term-{术语序号}`（start_ms 9 位补零，字幕序号不补零）
+- 例：`cue-33-000045889-term-0`
 - 同一 cue 多词项用 `-term-0` / `-term-1` 区分
 - vocabulary.json 的 id 必须复用 prompt 的 cue id（**禁止**自创 `e02_001..e02_095` 连续编号），否则丢失 cue↔term 的多对一关系
 
