@@ -80,11 +80,16 @@ python scripts/moyu_pipeline.py finish \
 
 ## 关键约定（防踩坑）
 
-### 配色：2 色方案
-- term-0 → `#ffd400`（浅黄）
+### 配色：5 色霓虹系
+- term-0 → `#ffd400`（浅黄，最显眼，常用于最常见生词）
 - term-1 → `#ff9a00`（浅橙）
-- 同 cue 出现 3 个及以上 term：循环回 `#ffd400`
+- term-2 → `#00ff7f`（亮绿）
+- term-3 → `#ff66ff`（亮粉/品红）
+- term-4 → `#00e5ff`（亮青/cyan）
+- 同 cue 出现 6 个及以上 term：循环回 `#ffd400`
+- 5 色组合对暗背景 / 明亮户外背景（霓虹色饱和度更高，更耐背景吞没）都友好
 - 不用红/蓝/绿/紫深色——会被视频背景吞没（用户明确反馈过）
+- 上层调用可通过 `--colors` 覆盖默认值；脚本默认串已更新为 `#ffd400,#ff9a00,#00ff7f,#ff66ff,#00e5ff`
 
 ### Glosses 不传
 - `glosses.json` 必须是空 `{}`，**禁止传值为空字符串**的释义
@@ -120,7 +125,7 @@ python scripts/moyu_pipeline.py finish \
 **Step 3 vocab 后**：
 - [ ] vocabulary.json id 集合 == prompt md id 集合
 - [ ] vocabulary.json 总数 = prompt md 总数
-- [ ] 颜色统计与 prompt 一致（90 #ffd400 + 5 #ff9a00 这种比例）
+- [ ] 颜色统计与 prompt 一致（典型如 90 #ffd400 + 4 #ff9a00 + 1 #00ff7f，按 cue 多 term 分布走 5 色）
 
 **Step 3 transcode 后**：
 - [ ] `ffprobe output.mp4` 显示 `hvc1` 视频、`aac` 音频
@@ -131,7 +136,7 @@ python scripts/moyu_pipeline.py finish \
 
 - 高亮：`python ~/.workbuddy/skills/srt-vocab-highlight/scripts/srt_highlight_full.py \
     --input foo.srt --output foo_高亮.srt \
-    --words foo_words.json --colors "#ffd400,#ff9a00" \
+    --words foo_words.json --colors "#ffd400,#ff9a00,#00ff7f,#ff66ff,#00e5ff" \
     [--corrections foo_corrections.json]`
   **不传** `--glosses`
 - 转码：`ffmpeg -y -i input.mkv -map 0:v:0 -map 0:a:0? \

@@ -39,7 +39,7 @@ SRT_HIGHLIGHT_SCRIPT = Path(
 )
 PYTHON_BIN = Path("/Users/cnn/.workbuddy/binaries/python/versions/3.13.12/bin/python3")
 
-DEFAULT_COLORS = "#ffd400,#ff9a00"  # term-0 / term-1，对齐 srt-vocab-highlight 的双色约定
+DEFAULT_COLORS = "#ffd400,#ff9a00,#00ff7f,#ff66ff,#00e5ff"  # 5 色霓虹系（term-0..4），适配暗 / 亮 / 户外背景
 DEFAULT_TRANSCODE_VCODEC_COPY = True
 DEFAULT_TRANSCODE_ACODEC = "aac"
 DEFAULT_TRANSCODE_ABITRATE = "192k"
@@ -211,7 +211,13 @@ VOCAB_RULES_HEADER = """\
 - **完整匹配**：以字幕文本里的原始大小写/连字符形式为准。例如字幕里有 "stand-up comedian" 不要拆成 "stand-up" 和 "comedian"；
   "after all" 不能拆成 "after" 和 "all"。
 - **保持顺序**：生词在 cue 内按首次出现顺序。
-- **多生词配色**：cue 内第 1 个生词用 "#ffd400"（黄），第 2 个用 "#ff9a00"（橙），第 3 及之后也回到 #ffd400 循环。
+- **多生词配色**：cue 内按 term 序号分配 5 色霓虹系：
+  - term-0 → `#ffd400`（黄）
+  - term-1 → `#ff9a00`（橙）
+  - term-2 → `#00ff7f`（亮绿）
+  - term-3 → `#ff66ff`（亮粉）
+  - term-4 → `#00e5ff`（亮青）
+  - 5 个以上 term 循环回 `#ffd400`
 - **修正中文翻译**：把错译直接改成正确中文（如 eleven-ish → "十一点左右"、moorish → "好吃到停不下来"）。
 
 ## 输出格式（严格裸 JSON 数组，不要包裹 ```json 代码块，不要任何解释）
@@ -220,7 +226,7 @@ VOCAB_RULES_HEADER = """\
   {
     "id": "cue-{字幕序号:0>3}-{start_ms:0>9}-term-{术语序号:0}",
     "term": "字幕里原样的英文词或短语",
-    "color": "#ffd400" 或 "#ff9a00",
+    "color": "#ffd400 / #ff9a00 / #00ff7f / #ff66ff / #00e5ff 五选一",
     "subtitle": {{
       "start": "00:01:23.456",
       "end": "00:01:25.678",
