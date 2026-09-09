@@ -319,10 +319,15 @@ def cmd_highlight(args) -> int:
 
 
 def cmd_vocab(args) -> int:
-    """从已确认的 prompt md 生成 moyu-ai-vocabulary.json（id 与 prompt 对齐）。
+    """从已确认的 prompt md 生成 moyu-ai-vocabulary.json 骨架。
 
-    注意：本命令不调用 AI，也不会自己写释义；只是把 prompt md 里的 95 个 entry
-    映射成 vocabulary.json 的 schema（id/term/color/block），phonetic/partOfSpeech/meaning
+    支持两种 prompt 格式（自动识别）：
+    - v1（旧）: entry 含 "id": "cue-XX-XXX-term-N" + term + color
+      → 输出 schemaVersion 1（id/term/color/phonetic/partOfSpeech/meaning/block）
+    - v2（新，Moyu Studio 2026-09+ 从高亮 SRT 导出）: entry 含 "cueIndex": N + term（可能含 color）
+      → 输出 schemaVersion 2（cueIndex/term/phonetic/partOfSpeech/meaning）
+
+    注意：本命令不调用 AI，也不会自己写释义；phonetic/partOfSpeech/meaning
     需要用户手工填入（或在 AI 标词阶段一并产出）。
     """
     if not args.prompt_md or not args.output:
@@ -334,39 +339,68 @@ def cmd_vocab(args) -> int:
         return 1
 
     text = prompt_md.read_text(encoding="utf-8")
-    pat = re.compile(
+    # 只在 "## 待处理词汇" 之后切段，避免误读规则模板里的占位示例
+    # （E02 教训：否则 "原样保留输入 term" 这类占位符会被当词条）
+    if "## 待处理词汇" in text:
+        text = text.split("## 待处理词汇", 1)[1]
+
+    # v2: "cueIndex": N ... "term": "..."
+    pat_v2 = re.compile(
+        r'"cueIndex":\s*(\d+),\s*\n\s*"term": "([^"]+)"', re.DOTALL
+    )
+    # v1: "id": "cue-..." ... "term": "..." ... "color": "#..."
+    pat_v1 = re.compile(
         r'"id": "(cue-\d+-\d+-term-\d+)".*?'
         r'"term": "([^"]+)".*?'
         r'"color": "(#[0-9a-f]+)"',
         re.DOTALL,
     )
-    entries_raw = pat.findall(text)
-    if not entries_raw:
-        print(f"[vocab] prompt md 内未匹配到 entry，检查格式", file=sys.stderr)
+
+    entries_v2 = pat_v2.findall(text)
+    entries_v1 = pat_v1.findall(text)
+
+    if entries_v2 and len(entries_v2) >= len(entries_v1):
+        vocab = {
+            "schemaVersion": 2,
+            "vocabulary": [
+                {
+                    "cueIndex": int(cue_idx),
+                    "term": term,
+                    "phonetic": "",
+                    "partOfSpeech": "",
+                    "meaning": "",
+                }
+                for cue_idx, term in entries_v2
+            ],
+        }
+    elif entries_v1:
+        vocab = {
+            "schemaVersion": 1,
+            "vocabulary": [
+                {
+                    "id": eid,
+                    "term": term,
+                    "color": color,
+                    "phonetic": "",
+                    "partOfSpeech": "",
+                    "meaning": "",
+                    "block": int(eid.split("-")[1]),
+                }
+                for eid, term, color in entries_v1
+            ],
+        }
+    else:
+        print("[vocab] prompt md 内未匹配到 entry（v1/v2 均无），检查格式", file=sys.stderr)
         return 1
 
-    vocab = {
-        "schemaVersion": 1,
-        "vocabulary": [
-            {
-                "id": eid,
-                "term": term,
-                "color": color,
-                "phonetic": "",
-                "partOfSpeech": "",
-                "meaning": "",
-                "block": int(eid.split("-")[1]),
-            }
-            for eid, term, color in entries_raw
-        ],
-    }
     out_path = Path(args.output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(
         json.dumps(vocab, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"[vocab] ✓ vocab.json 已写入 {out_path}（{len(vocab['vocabulary'])} 条）")
+    print(f"[vocab] ✓ vocab.json 已写入 {out_path}（{len(vocab['vocabulary'])} 条，"
+          f"schemaVersion {vocab['schemaVersion']}）")
     return 0
 
 

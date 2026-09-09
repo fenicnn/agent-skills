@@ -96,11 +96,19 @@ python scripts/moyu_pipeline.py finish \
 - `srt_vocab_highlight.py` 内部 `re.compile("")` 会匹配每个位置，导致 cue 40/214/263/350/351 中文行每个字都被包成 `<font color="#ffd400"></font>字</font>`
 - 如果需要中文行释义高亮，必须用中文行实际包含的中文子串，绝不能用空串
 
-### ID 格式：`cue-XX-XXX-term-N`
+### 词汇 JSON 双 schema（自动识别）
+- **v1（旧）**：prompt entry 含 `"id": "cue-XX-XXX-term-N"` + term + color
+  → vocabulary.json 为 `{"schemaVersion": 1, "vocabulary": [{id, term, color, phonetic, partOfSpeech, meaning, block}]}`
+- **v2（新，2026-09+）**：Moyu Studio 从高亮 SRT 导出的 prompt 改用 `"cueIndex": N` + term（可能含 color）
+  → vocabulary.json 为 `{"schemaVersion": 2, "vocabulary": [{cueIndex, term, phonetic, partOfSpeech, meaning}]}`
+  （无 id/color/block 字段；`vocab` 子命令已自动按 prompt 格式匹配输出对应 schema）
+- 顺序严格保持 prompt 顺序，不增删、不重排
+
+### ID 格式（v1 用）：`cue-XX-XXX-term-N`
 - `{字幕序号}-{start_ms:0>9}-term-{术语序号}`（start_ms 9 位补零，字幕序号不补零）
 - 例：`cue-33-000045889-term-0`
 - 同一 cue 多词项用 `-term-0` / `-term-1` 区分
-- vocabulary.json 的 id 必须复用 prompt 的 cue id（**禁止**自创 `e02_001..e02_095` 连续编号），否则丢失 cue↔term 的多对一关系
+- v1 vocabulary.json 的 id 必须复用 prompt 的 cue id（**禁止**自创 `e02_001..e02_095` 连续编号），否则丢失 cue↔term 的多对一关系
 
 ### `--vcodec-copy`：默认开启
 - 视频直接 copy 原码流，不需要重新编码（HEVC BluRay 已经是 hvc1）
@@ -123,9 +131,10 @@ python scripts/moyu_pipeline.py finish \
 - [ ] 所有 cue 的 start/end 时间戳未变
 
 **Step 3 vocab 后**：
-- [ ] vocabulary.json id 集合 == prompt md id 集合
-- [ ] vocabulary.json 总数 = prompt md 总数
-- [ ] 颜色统计与 prompt 一致（典型如 90 #ffd400 + 4 #ff9a00 + 1 #00ff7f，按 cue 多 term 分布走 5 色）
+- [ ] vocabulary.json 条数 = prompt md 条数
+- [ ] v1：id 集合 == prompt md id 集合；v2：cueIndex+term 序列 == prompt 序列
+- [ ] v1：颜色统计与 prompt 一致（典型如 90 #ffd400 + 4 #ff9a00 + 1 #00ff7f，按 cue 多 term 分布走 5 色）
+- [ ] schemaVersion 与 prompt 匹配（v1 prompt → 1；v2 prompt → 2）
 
 **Step 3 transcode 后**：
 - [ ] `ffprobe output.mp4` 显示 `hvc1` 视频、`aac` 音频
