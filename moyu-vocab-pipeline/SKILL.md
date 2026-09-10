@@ -1,8 +1,8 @@
 ---
 name: moyu-vocab-pipeline
-description: 一站式生成 Moyu Studio 学习资源：从双语 SRT 生成彩色重点词字幕、schemaVersion 2 AI 词汇任务与导入 JSON，并可按需将非 MP4 视频转换为兼容 MP4。用户要求处理某一集、复用上一集流程、生成 Studio 词汇素材或运行 moyu pipeline 时使用；不用于最终视频画面合成。
+description: 一站式批量或单集生成 Moyu Studio 学习资源：从双语 SRT 生成彩色重点词字幕、schemaVersion 2 AI 词汇任务与导入 JSON，并审计、幂等生成规范 MP4。用户要求处理一集或一段集数、复用上一集流程、整理课程文件、生成配套视频字幕词汇或运行 moyu pipeline 时使用；不用于下载在线视频或最终视频画面合成。
 metadata:
-  short-description: 生成 Moyu Studio 高亮字幕、AI 词汇任务并按需转码
+  short-description: 批量审计并生成 Moyu Studio 视频、字幕与词汇文件
 ---
 
 # Moyu Vocab Pipeline
@@ -11,8 +11,9 @@ metadata:
 
 把"原始视频 + 原始双语 SRT → Moyu Studio 产物"的流程从一次性脚本升级成可复用 pipeline。
 
-- **核心产物**：高亮 SRT、词汇 JSON（v2 cueIndex 格式）和 AI 释义提示词；仅在输入不是 MP4 时默认另产 MP4
+- **核心产物**：规范 MP4、高亮 SRT、词汇 JSON（v2 cueIndex 格式）和 AI 释义提示词
 - **7 个子命令**：`init / apply-selection / highlight / vocab / transcode / finish / status`
+- **批量工具**：`audit_media_batch.py` 先审计、`ensure_canonical_mp4.py` 幂等补齐规范 MP4，完成后再严格复查
 - `vocab` 直接解析高亮 SRT，并同时生成可交给外部 AI 的释义任务；默认输出 schemaVersion 2，`--schema 1` 兼容旧客户端。
 - **依赖**：内置 `srt-vocab-highlight` skill（高亮阶段）+ 系统 `ffmpeg`（transcode 阶段）
 
@@ -20,11 +21,41 @@ Skill 的入口脚本 `scripts/moyu_pipeline.py` 同时也是 CLI，可直接 `p
 
 ## Workflow Decision Tree
 
-1. 用户给原始双语 SRT（必填）和视频（可选）→ 进入 Step 2
-2. 用户说"跑一遍 E04 / 同上一集再来一次 / pipeline 一键" → 直接用 `finish`（前提是工程目录已有 words/corrections）
-3. 用户是全新一集没建工程 → 先 `init --gen-prompt`，再 AI 标词；外部 AI 返回单个 JSON 时用 `apply-selection` 落成 words/corrections，最后 `finish` + AI 回填释义
-4. 用户只要其中一类产物 → 用对应单步子命令（`highlight` / `vocab` / `transcode`）
-5. 用户想看进度 → `status`
+1. 用户指定一段集数或说“处理第 N–M 集” → 视为完整批处理：先批量审计，再只补缺失/无效产物，最后严格复查。除非用户明确缩小范围，否则规范 MP4、原始 SRT、高亮 SRT、词汇 JSON 缺一不可。
+2. 用户给原始双语 SRT（必填）和视频（可选）→ 进入单集工作流。
+3. 用户说"跑一遍 E04 / 同上一集再来一次 / pipeline 一键" → 直接用 `finish`（前提是工程目录已有 words/corrections）。
+4. 用户是全新一集没建工程 → 先 `init --gen-prompt`，再 AI 标词；外部 AI 返回单个 JSON 时用 `apply-selection` 落成 words/corrections，最后 `finish` + AI 回填释义。
+5. 用户只要其中一类产物 → 用对应单步子命令（`highlight` / `vocab` / `transcode`）。
+6. 用户想看进度 → 单集用 `status`，批量用 `audit_media_batch.py`。
+
+## 批量处理协议（必须执行）
+
+假设根目录下按 `第4集/`、`第5集/` 等命名，每集以唯一的 MKV 或原始 MP4 为基准。开始前先做只读审计：
+
+```bash
+python scripts/audit_media_batch.py /path/to/season --episodes 4-10
+```
+
+若 MKV 对应的规范 MP4 缺失，幂等补齐：
+
+```bash
+python scripts/ensure_canonical_mp4.py /path/to/season --episodes 4-10
+```
+
+规则：
+
+- 规范 MP4 只能叫 `<源视频文件名去扩展名>.mp4`；`-moyu-*`、`_000*`、预览文件及其他发布变体都不算规范交付文件。
+- 已存在且验证有效的规范 MP4 必须跳过，不能重复编码、覆盖或生成带后缀副本。
+- 已存在但验证失败的规范 MP4 必须停止并报告，不能静默覆盖。历史 `.converting.mp4` 仅在验证有效时可原子提升为规范文件。
+- 每集必须恰好有一个源视频；缺失或有多个候选时停止该批次，要求人工确认，不能猜。
+- 用户没有明确要求时，不生成 Bilibili、压缩、预览或编号副本等额外 MP4。
+- 每一集的字幕与词汇仍按下方单集工作流处理；批次末尾必须执行严格完成检查：
+
+```bash
+python scripts/audit_media_batch.py /path/to/season --episodes 4-10 --strict
+```
+
+只有严格检查退出成功，且每集 `MP4 / SRT / HIGHLIGHT / VOCAB` 均为 `OK`，才可向用户报告整批完成。`EXTRA_MP4` 只报告冗余文件，不自动删除；删除需要用户明确授权。
 
 ## 典型工作流（4 步）
 
@@ -145,6 +176,7 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 - `finish --video` 遇到 `.mp4` 时默认直接复用，不创建第二份视频，不检查或改变其编码。
 - 只有非 MP4 输入才进入 auto：HEVC 自动 copy 并标记 hvc1；H.264 自动 copy 并标记 avc1；其他编码转 HEVC。音频默认 AAC LC 192k。
 - 仅当用户明确要求重编码已有 MP4 时，才传 `--transcode-mp4`。
+- 批量场景必须使用 `ensure_canonical_mp4.py`，它复用本 skill 的 `transcode` 实现并在生成前后验证，保证重复运行只跳过有效文件。
 
 ### `--movflags +faststart`
 - 必须加，否则 QuickTime/Web 浏览器没法 seek
@@ -172,6 +204,12 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 - [ ] 10s 中间位置能 seek（= faststart 生效）
 - [ ] 时长与 MKV 一致
 
+**批量任务结束前**：
+- [ ] 对用户指定的完整集数范围运行了 `audit_media_batch.py --strict`
+- [ ] 每集规范 MP4 名称与源文件 stem 完全一致，且视频/音频、分辨率、时长和兼容编码验证通过
+- [ ] 每集原始 SRT、高亮 SRT、schemaVersion 2 词汇 JSON 都有效
+- [ ] 未把发布变体误报为规范 MP4，也未无要求生成额外 MP4
+
 ## 子脚本调用方式（如需不通过 moyu_pipeline.py 直接调）
 
 - 高亮：`python ~/.workbuddy/skills/srt-vocab-highlight/scripts/srt_highlight_full.py \
@@ -194,6 +232,8 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 
 ### scripts/
 - `scripts/moyu_pipeline.py`：本 skill 的全部实现——7 个子命令 + 与 Studio 对齐的 SRT 高亮解析 + 调用 srt-vocab-highlight + 调用 ffmpeg。
+- `scripts/audit_media_batch.py`：只读扫描一段集数，输出逐集完成矩阵；`--strict` 在任何规范交付物缺失或无效时退出失败。
+- `scripts/ensure_canonical_mp4.py`：幂等补齐每集唯一的规范 MP4；复用 `moyu_pipeline.py transcode`，不覆盖无效成品、不制造后缀副本。
 
 ## 参考协议
 
@@ -203,6 +243,8 @@ AI 按下方"词汇 JSON 映射规则"给 `moyu-ai-vocabulary.json` 的 92/N 条
 ## 修改后验证
 
 ```bash
-python -m unittest scripts/test_moyu_pipeline.py
+python -m unittest discover -s scripts -p 'test_*.py'
 python scripts/moyu_pipeline.py --help
+python scripts/audit_media_batch.py --help
+python scripts/ensure_canonical_mp4.py --help
 ```
